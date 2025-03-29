@@ -41,6 +41,7 @@
   </style>
   <script src="https://www.gstatic.com/firebasejs/10.5.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.5.0/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.5.0/firebase-firestore-compat.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
@@ -71,6 +72,7 @@
     
     firebase.initializeApp(firebaseConfig);
     const database = firebase.database();
+    const firestore = firebase.firestore(); // Initialize Firestore
     
     let map, marker, polyline;
     let vehiclePath = [];
@@ -87,16 +89,7 @@
         attribution: '&copy; OpenTopoMap contributors'
       });
       
-      marker = L.marker([21.1496273646212, 79.08079485255764], {
-        icon: L.icon({
-          iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-          iconSize: [25, 41],
-          iconAnchor: [12, 41],
-          popupAnchor: [1, -34],
-          rotationAngle: 0
-        })
-      }).addTo(map);
-      
+      marker = L.marker([21.1496273646212, 79.08079485255764]).addTo(map);
       polyline = L.polyline([], { color: 'red' }).addTo(map);
       
       document.getElementById("map-type").addEventListener("change", function(event) {
@@ -110,27 +103,39 @@
       });
       
       trackLiveLocation();
+      loadStops();
     }
     
     function trackLiveLocation() {
       const locationRef = database.ref('bus/Location');
-    
+      
       locationRef.on('value', (snapshot) => {
         const data = snapshot.val();
         if (!data || !data.Latitude || !data.Longitude) return;
     
         const newPosition = [data.Latitude, data.Longitude];
         marker.setLatLng(newPosition);
-        
-        if (data.Heading) {
-          marker.setRotationAngle(data.Heading);
-        }
-        
         map.setView(newPosition, 18);
         updateVehiclePath(newPosition);
         updateSpeed(data.Speed);
-        fetchLocationName(data.Latitude, data.Longitude);
+
+        // Save the new position to Firestore
+        saveRouteToFirestore(data.Latitude, data.Longitude);
       }, (error) => console.error("Error fetching location data:", error));
+    }
+    
+    function saveRouteToFirestore(latitude, longitude) {
+      const routeCollection = firestore.collection('Routes'); // Firestore collection for routes
+      const timestamp = new Date().toISOString(); // Current timestamp
+      routeCollection.add({
+        latitude,
+        longitude,
+        timestamp
+      }).then(() => {
+        console.log("Route point saved successfully:", { latitude, longitude });
+      }).catch((error) => {
+        console.error("Error saving route point:", error);
+      });
     }
     
     function updateVehiclePath(position) {
@@ -142,15 +147,23 @@
       document.getElementById("speed-display").innerText = speed > 0 ? `${speed} km/h` : "-- km/h";
     }
     
-    function fetchLocationName(lat, lng) {
-      fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
-        .then(response => response.json())
-        .then(data => {
-          if (data && data.display_name) {
-            marker.bindPopup(data.display_name).openPopup();
+    function loadStops() {
+      const stopsCollection = firestore.collection('Locations'); // Fetching data from Firestore 'Locations' collection
+      stopsCollection.get().then((querySnapshot) => {
+        querySnapshot.forEach((doc) => {
+          const stopName = doc.id; // Document ID as stop name
+          const stopData = doc.data(); // Document data contains latitude and longitude
+          if (stopData.Latitude && stopData.Longitude) {
+            L.marker([stopData.Latitude, stopData.Longitude], {
+              icon: L.icon({
+                iconUrl: 'https://cdn-icons-png.flaticon.com/512/684/684908.png', // New custom marker icon URL
+                iconSize: [30, 30], // Adjusted size for the new icon
+                iconAnchor: [15, 30] // Adjusted anchor point
+              })
+            }).addTo(map).bindPopup(`<b>${stopName}</b>`); // Adding marker to the map
           }
-        })
-        .catch(error => console.error("Error fetching location name:", error));
+        });
+      }).catch((error) => console.error("Error loading stops:", error));
     }
     
     window.onload = () => {
