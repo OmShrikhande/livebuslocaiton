@@ -114,7 +114,21 @@
         if (!data || !data.Latitude || !data.Longitude) return;
     
         const newPosition = [data.Latitude, data.Longitude];
-        marker.setLatLng(newPosition);
+
+        // Update marker with a custom bus icon
+        const busIcon = L.icon({
+          iconUrl: 'https://cdn-icons-png.flaticon.com/512/201/201818.png', // Bus icon URL
+          iconSize: [40, 40], // Adjusted size for the bus icon
+          iconAnchor: [20, 20] // Center the icon
+        });
+
+        if (!marker) {
+          marker = L.marker(newPosition, { icon: busIcon }).addTo(map);
+        } else {
+          marker.setLatLng(newPosition);
+          marker.setIcon(busIcon);
+        }
+
         map.setView(newPosition, 18);
         updateVehiclePath(newPosition);
         updateSpeed(data.Speed);
