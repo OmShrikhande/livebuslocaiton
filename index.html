@@ -18,18 +18,40 @@
       font-size: 16px;
       font-weight: bold;
       box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      z-index: 1000;
     }
     #map {
+      position: absolute;
+      top: 0;
+      left: 0;
       height: 100vh;
       width: 100vw;
+      z-index: 0;
+    }
+    #map-controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: white;
+      padding: 5px;
+      border-radius: 5px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+      z-index: 1000;
     }
   </style>
-  <script src="https://www.gstatic.com/firebasejs/10.5.0/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.5.0/firebase-database.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.5.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.5.0/firebase-database-compat.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
+  <div id="map-controls">
+    <label for="map-type">Map Type:</label>
+    <select id="map-type">
+      <option value="default">Default</option>
+      <option value="satellite">Satellite</option>
+    </select>
+  </div>
   <div id="map"></div>
   <div id="speed-display-container">
     <div id="speed-display">-- km/h</div>
@@ -52,17 +74,40 @@
     
     let map, marker, polyline;
     let vehiclePath = [];
+    let defaultLayer, satelliteLayer;
     
     function initMap() {
       map = L.map('map').setView([21.1496273646212, 79.08079485255764], 18);
       
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      defaultLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(map);
       
-      marker = L.marker([21.1496273646212, 79.08079485255764]).addTo(map);
+      satelliteLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenTopoMap contributors'
+      });
+      
+      marker = L.marker([21.1496273646212, 79.08079485255764], {
+        icon: L.icon({
+          iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+          iconSize: [25, 41],
+          iconAnchor: [12, 41],
+          popupAnchor: [1, -34],
+          rotationAngle: 0
+        })
+      }).addTo(map);
       
       polyline = L.polyline([], { color: 'red' }).addTo(map);
+      
+      document.getElementById("map-type").addEventListener("change", function(event) {
+        if (event.target.value === "satellite") {
+          map.removeLayer(defaultLayer);
+          map.addLayer(satelliteLayer);
+        } else {
+          map.removeLayer(satelliteLayer);
+          map.addLayer(defaultLayer);
+        }
+      });
       
       trackLiveLocation();
     }
@@ -75,11 +120,16 @@
         if (!data || !data.Latitude || !data.Longitude) return;
     
         const newPosition = [data.Latitude, data.Longitude];
-    
         marker.setLatLng(newPosition);
+        
+        if (data.Heading) {
+          marker.setRotationAngle(data.Heading);
+        }
+        
         map.setView(newPosition, 18);
         updateVehiclePath(newPosition);
         updateSpeed(data.Speed);
+        fetchLocationName(data.Latitude, data.Longitude);
       }, (error) => console.error("Error fetching location data:", error));
     }
     
@@ -92,7 +142,21 @@
       document.getElementById("speed-display").innerText = speed > 0 ? `${speed} km/h` : "-- km/h";
     }
     
-    window.onload = initMap;
+    function fetchLocationName(lat, lng) {
+      fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
+        .then(response => response.json())
+        .then(data => {
+          if (data && data.display_name) {
+            marker.bindPopup(data.display_name).openPopup();
+          }
+        })
+        .catch(error => console.error("Error fetching location name:", error));
+    }
+    
+    window.onload = () => {
+      console.log("Initializing map...");
+      initMap();
+    };
   </script>
 </body>
 </html>
