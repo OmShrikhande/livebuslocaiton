@@ -54,8 +54,9 @@
     }
   </style>
   <script src="https://www.gstatic.com/firebasejs/10.5.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.5.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.5.0/firebase-database-compat.js"></script>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAUgBbj1x9Pnm-XbGbJ-N-erUw6p10oqJ8"></script>
 </head>
 <body>
   <div id="map"></div>
@@ -80,54 +81,118 @@
       };
 
       firebase.initializeApp(firebaseConfig);
-      const database = firebase.database();
-      
+      const db = firebase.firestore();
+      const realtimeDb = firebase.database();
+
       let map, marker, routePolyline, routeCoordinates = [];
-      let lastKnownLocation = [21.1496, 79.0807]; // Default location
+      let lastKnownLocation = { lat: 21.1496, lng: 79.0807 }; // Default location
+      let autoFocus = true;
+      let busStopMarkers = []; // Store markers for cleanup
 
       function initMap() {
-        map = L.map('map', { zoomControl: false }).setView(lastKnownLocation, 18);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '&copy; OpenStreetMap contributors'
-        }).addTo(map);
-
-        const busIcon = L.icon({
-          iconUrl: 'https://cdn-icons-png.flaticon.com/512/201/201818.png',
-          iconSize: [40, 40],
-          iconAnchor: [20, 20]
+        map = new google.maps.Map(document.getElementById('map'), {
+          center: lastKnownLocation,
+          zoom: 18,
+          disableDefaultUI: true
         });
 
-        marker = L.marker(lastKnownLocation, { icon: busIcon }).addTo(map);
-        routePolyline = L.polyline(routeCoordinates, { color: 'blue', weight: 4 }).addTo(map);
+        marker = new google.maps.Marker({
+          position: lastKnownLocation,
+          map: map,
+          icon: {
+            url: 'https://cdn-icons-png.flaticon.com/512/201/201818.png',
+            scaledSize: new google.maps.Size(40, 40)
+          }
+        });
+
+        routePolyline = new google.maps.Polyline({
+          path: routeCoordinates,
+          geodesic: true,
+          strokeColor: 'blue',
+          strokeOpacity: 1.0,
+          strokeWeight: 4,
+          map: map
+        });
+
+        addBusStopMarkers();
         trackLiveLocation();
       }
 
+      function addBusStopMarkers() {
+        console.log("Fetching bus stops from Firestore...");
+        db.collection('Locations').get().then((querySnapshot) => {
+          if (querySnapshot.empty) {
+            console.log("No stops found in the database.");
+            return;
+          }
+
+          // Clear existing markers
+          busStopMarkers.forEach(marker => marker.setMap(null));
+          busStopMarkers = [];
+
+          querySnapshot.forEach((doc) => {
+            const stopName = doc.id;
+            const { Latitude, Longitude } = doc.data();
+            if (Latitude && Longitude) {
+              console.log(`Adding marker for stop: ${stopName} at (${Latitude}, ${Longitude})`); // Log each stop
+              const marker = new google.maps.Marker({
+                position: { lat: parseFloat(Latitude), lng: parseFloat(Longitude) },
+                map: map,
+                title: stopName,
+                icon: {
+                  url: 'https://cdn-icons-png.flaticon.com/512/684/684908.png',
+                  scaledSize: new google.maps.Size(30, 30)
+                }
+              });
+              busStopMarkers.push(marker);
+            } else {
+              console.log(`Invalid coordinates for stop: ${stopName}`);
+            }
+          });
+        }).catch((error) => {
+          console.error("Error fetching bus stops from Firestore:", error);
+        });
+      }
+
       function trackLiveLocation() {
-        database.ref('bus').on('value', (snapshot) => {
+        console.log("Fetching live bus data from Realtime Database...");
+        realtimeDb.ref('bus').on('value', (snapshot) => {
           const data = snapshot.val();
+          console.log("Fetched live bus data:", data); // Log fetched live bus data
           if (!data || !data.Location) return;
 
           const { Latitude, Longitude, Speed } = data.Location;
           if (Latitude && Longitude) {
-            lastKnownLocation = [Latitude, Longitude]; // Save latest location
-            marker.setLatLng(lastKnownLocation);
+            console.log(`Updating bus location to (${Latitude}, ${Longitude}) with speed: ${Speed}`); // Log location and speed
+            lastKnownLocation = { lat: Latitude, lng: Longitude };
+            marker.setPosition(lastKnownLocation);
             routeCoordinates.push(lastKnownLocation);
-            routePolyline.setLatLngs(routeCoordinates);
+            routePolyline.setPath(routeCoordinates);
+            if (autoFocus) {
+              map.panTo(lastKnownLocation);
+            }
           }
-
           document.getElementById("speed-display").innerText = Speed ? Speed.toFixed(2) : "--";
           document.getElementById("daily-distance").innerText = data.Distance?.DailyDistance ? data.Distance.DailyDistance.toFixed(2) : "--";
           document.getElementById("total-distance").innerText = data.Distance?.TotalDistance ? data.Distance.TotalDistance.toFixed(2) : "--";
+        }, (error) => {
+          console.error("Error fetching live bus data from Realtime Database:", error);
         });
       }
 
       document.getElementById("focus-button").addEventListener("click", () => {
-        map.setView(lastKnownLocation, 18);
+        autoFocus = true;
+        map.panTo(lastKnownLocation);
       });
 
       document.getElementById("reset-button").addEventListener("click", () => {
-        database.ref('bus/Distance/TotalDistance').set(0);
-        document.getElementById("total-distance").innerText = "0.00";
+        console.log("Resetting total distance in Realtime Database...");
+        realtimeDb.ref('bus/Distance/TotalDistance').set(0).then(() => {
+          console.log("Total distance reset successfully.");
+          document.getElementById("total-distance").innerText = "0.00";
+        }).catch((error) => {
+          console.error("Error resetting total distance in Realtime Database:", error);
+        });
       });
 
       setTimeout(initMap, 1000);
