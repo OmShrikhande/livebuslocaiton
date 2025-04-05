@@ -100,8 +100,12 @@
           position: lastKnownLocation,
           map: map,
           icon: {
-            url: 'https://cdn-icons-png.flaticon.com/512/201/201818.png',
-            scaledSize: new google.maps.Size(40, 40)
+            path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, // Directional arrow icon
+            scale: 7, // Adjust size
+            fillColor: 'blue',
+            fillOpacity: 1,
+            strokeWeight: 1,
+            rotation: 0 // Default rotation
           }
         });
 
@@ -161,13 +165,27 @@
           console.log("Fetched live bus data:", data); // Log fetched live bus data
           if (!data || !data.Location) return;
 
-          const { Latitude, Longitude, Speed } = data.Location;
+          const { Latitude, Longitude, Speed, Direction } = data.Location; // Added Direction
           if (Latitude && Longitude) {
-            console.log(`Updating bus location to (${Latitude}, ${Longitude}) with speed: ${Speed}`); // Log location and speed
+            console.log(`Updating bus location to (${Latitude}, ${Longitude}) with speed: ${Speed}`);
             lastKnownLocation = { lat: Latitude, lng: Longitude };
             marker.setPosition(lastKnownLocation);
-            routeCoordinates.push(lastKnownLocation);
-            routePolyline.setPath(routeCoordinates);
+
+            // Update marker rotation based on direction
+            if (Direction !== undefined) {
+              marker.setIcon({
+                path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+                scale: 6,
+                fillColor: 'blue',
+                fillOpacity: 2,
+                strokeWeight: 3,
+                rotation: Direction // Rotate marker based on direction
+              });
+            }
+
+            // Call Roads API to snap to roads
+            snapToRoads(lastKnownLocation);
+
             if (autoFocus) {
               map.panTo(lastKnownLocation);
             }
@@ -178,6 +196,31 @@
         }, (error) => {
           console.error("Error fetching live bus data from Realtime Database:", error);
         });
+      }
+
+      function snapToRoads(location) {
+        const apiKey = "pGOrGnquqIicNcKbFSQqba-w6ko="; // Updated Roads API key
+        const url = `https://roads.googleapis.com/v1/snapToRoads?path=${location.lat},${location.lng}&interpolate=true&key=${apiKey}`;
+
+        fetch(url)
+          .then(response => response.json())
+          .then(data => {
+            if (data.snappedPoints) {
+              const snappedCoordinates = data.snappedPoints.map(point => ({
+                lat: point.location.latitude,
+                lng: point.location.longitude
+              }));
+
+              // Update the polyline with snapped coordinates
+              routeCoordinates.push(...snappedCoordinates);
+              routePolyline.setPath(routeCoordinates);
+            } else {
+              console.log("No snapped points returned from Roads API.");
+            }
+          })
+          .catch(error => {
+            console.error("Error calling Roads API:", error);
+          });
       }
 
       document.getElementById("focus-button").addEventListener("click", () => {
