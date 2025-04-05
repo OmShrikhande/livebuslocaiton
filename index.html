@@ -211,9 +211,8 @@
                 lng: point.location.longitude
               }));
 
-              // Update the polyline with snapped coordinates
-              routeCoordinates.push(...snappedCoordinates);
-              routePolyline.setPath(routeCoordinates);
+              // Highlight the snapped road segments
+              highlightRoadSegments(snappedCoordinates);
             } else {
               console.log("No snapped points returned from Roads API.");
             }
@@ -221,6 +220,23 @@
           .catch(error => {
             console.error("Error calling Roads API:", error);
           });
+      }
+
+      function highlightRoadSegments(snappedCoordinates) {
+        // Clear previous road highlights
+        if (routePolyline) {
+          routePolyline.setMap(null);
+        }
+
+        // Create a new polyline for the current road segment
+        routePolyline = new google.maps.Polyline({
+          path: snappedCoordinates, // Use only the snapped road segment
+          geodesic: true,
+          strokeColor: 'yellow', // Highlight color for the road
+          strokeOpacity: 0.8,
+          strokeWeight: 6, // Thicker line for better visibility
+          map: map
+        });
       }
 
       document.getElementById("focus-button").addEventListener("click", () => {
