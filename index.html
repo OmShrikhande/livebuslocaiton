@@ -88,6 +88,8 @@
       let lastKnownLocation = { lat: 21.1496, lng: 79.0807 }; // Default location
       let autoFocus = true;
       let busStopMarkers = []; // Store markers for cleanup
+      let lastSnappedCoordinate = null; // Store the last snapped coordinate
+      let snappedRouteCoordinates = []; // Store all snapped coordinates for the route
 
       function initMap() {
         map = new google.maps.Map(document.getElementById('map'), {
@@ -199,20 +201,33 @@
       }
 
       function snapToRoads(location) {
+        console.log("Passing coordinates to Roads API:", location); // Log the coordinates being passed
         const apiKey = "AIzaSyAUgBbj1x9Pnm-XbGbJ-N-erUw6p10oqJ8"; // Updated Roads API key
         const url = `https://roads.googleapis.com/v1/snapToRoads?path=${location.lat},${location.lng}&interpolate=true&key=${apiKey}`;
 
         fetch(url)
-          .then(response => response.json())
+          .then(response => {
+            console.log("Roads API response status:", response.status); // Log the HTTP status
+            if (!response.ok) {
+              throw new Error(`Roads API error: ${response.statusText}`);
+            }
+            return response.json();
+          })
           .then(data => {
-            if (data.snappedPoints) {
-              const snappedCoordinates = data.snappedPoints.map(point => ({
-                lat: point.location.latitude,
-                lng: point.location.longitude
-              }));
+            console.log("Roads API response data:", data); // Log the response from the Roads API
+            if (data.snappedPoints && data.snappedPoints.length > 0) {
+              const snappedCoordinate = {
+                lat: data.snappedPoints[0].location.latitude,
+                lng: data.snappedPoints[0].location.longitude
+              };
 
-              // Highlight the snapped road segments
-              highlightRoadSegments(snappedCoordinates);
+              console.log("Snapped coordinate:", snappedCoordinate); // Log the snapped coordinate
+
+              // Add the snapped coordinate to the cumulative route
+              snappedRouteCoordinates.push(snappedCoordinate);
+
+              // Highlight the entire route
+              highlightRoadSegments(snappedRouteCoordinates);
             } else {
               console.log("No snapped points returned from Roads API.");
             }
@@ -223,20 +238,31 @@
       }
 
       function highlightRoadSegments(snappedCoordinates) {
+        if (!snappedCoordinates || snappedCoordinates.length < 2) {
+          console.log("Not enough coordinates to highlight a route.");
+          return;
+        }
+
+        console.log("Highlighting road segment with coordinates:", snappedCoordinates); // Log the coordinates being highlighted
+
         // Clear previous road highlights
         if (routePolyline) {
           routePolyline.setMap(null);
         }
 
-        // Create a new polyline for the current road segment
+        // Create a new polyline for the entire route
         routePolyline = new google.maps.Polyline({
-          path: snappedCoordinates, // Use only the snapped road segment
+          path: snappedCoordinates, // Use the cumulative snapped route
           geodesic: true,
           strokeColor: 'yellow', // Highlight color for the road
           strokeOpacity: 0.8,
           strokeWeight: 6, // Thicker line for better visibility
-          map: map
         });
+
+        // Add the polyline to the map
+        routePolyline.setMap(map);
+
+        console.log("Route highlighted successfully.");
       }
 
       document.getElementById("focus-button").addEventListener("click", () => {
