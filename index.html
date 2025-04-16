@@ -91,6 +91,23 @@
       let lastSnappedCoordinate = null; // Store the last snapped coordinate
       let snappedRouteCoordinates = []; // Store all snapped coordinates for the route
 
+      const targetLocation = { lat: 21.213652341474052, lng: 78.97403582212675 }; // Target location
+      const proximityThreshold = 0.01; // Threshold in degrees for proximity check
+
+      function isNearTarget(location) {
+        const distance = Math.sqrt(
+          Math.pow(location.lat - targetLocation.lat, 2) +
+          Math.pow(location.lng - targetLocation.lng, 2)
+        );
+        return distance <= proximityThreshold;
+      }
+
+      function storeCoordinate(location) {
+        let storedCoordinates = JSON.parse(localStorage.getItem('storedCoordinates')) || [];
+        storedCoordinates.push(location);
+        localStorage.setItem('storedCoordinates', JSON.stringify(storedCoordinates));
+      }
+
       function initMap() {
         map = new google.maps.Map(document.getElementById('map'), {
           center: lastKnownLocation,
@@ -111,14 +128,19 @@
           }
         });
 
-        routePolyline = new google.maps.Polyline({
-          path: routeCoordinates,
-          geodesic: true,
-          strokeColor: 'blue',
-          strokeOpacity: 1.0,
-          strokeWeight: 4,
-          map: map
-        });
+        // Retain the existing polyline and route coordinates
+        if (!routePolyline) {
+          routePolyline = new google.maps.Polyline({
+            path: snappedRouteCoordinates, // Use the existing snapped route
+            geodesic: true,
+            strokeColor: 'blue',
+            strokeOpacity: 1.0,
+            strokeWeight: 4,
+            map: map
+          });
+        } else {
+          routePolyline.setMap(map); // Reattach the existing polyline to the map
+        }
 
         addBusStopMarkers();
         trackLiveLocation();
@@ -200,6 +222,46 @@
         });
       }
 
+      function resetRouteIfNearTarget(location) {
+        if (isNearTarget(location)) {
+          console.log("Resetting route as the location is near the target.");
+          snappedRouteCoordinates = []; // Clear the route coordinates
+          localStorage.setItem('storedCoordinates', JSON.stringify([])); // Clear stored coordinates
+          if (routePolyline) {
+            routePolyline.setMap(null); // Remove the polyline from the map
+          }
+        }
+      }
+
+      function highlightRouteFromStoredCoordinates() {
+        const storedCoordinates = JSON.parse(localStorage.getItem('storedCoordinates')) || [];
+        if (storedCoordinates.length < 2) {
+          console.log("Not enough stored coordinates to highlight a route.");
+          return;
+        }
+
+        console.log("Highlighting route from stored coordinates:", storedCoordinates);
+
+        // Clear previous road highlights
+        if (routePolyline) {
+          routePolyline.setMap(null);
+        }
+
+        // Create a new polyline for the stored route
+        routePolyline = new google.maps.Polyline({
+          path: storedCoordinates, // Use the stored coordinates
+          geodesic: true,
+          strokeColor: 'yellow', // Highlight color for the road
+          strokeOpacity: 0.8,
+          strokeWeight: 6, // Thicker line for better visibility
+        });
+
+        // Add the polyline to the map
+        routePolyline.setMap(map);
+
+        console.log("Route highlighted successfully from stored coordinates.");
+      }
+
       function snapToRoads(location) {
         console.log("Passing coordinates to Roads API:", location); // Log the coordinates being passed
         const apiKey = "AIzaSyAUgBbj1x9Pnm-XbGbJ-N-erUw6p10oqJ8"; // Updated Roads API key
@@ -223,11 +285,14 @@
 
               console.log("Snapped coordinate:", snappedCoordinate); // Log the snapped coordinate
 
-              // Add the snapped coordinate to the cumulative route
-              snappedRouteCoordinates.push(snappedCoordinate);
+              // Reset the route if near the target location
+              resetRouteIfNearTarget(snappedCoordinate);
 
-              // Highlight the entire route
-              highlightRoadSegments(snappedRouteCoordinates);
+              // Store the snapped coordinate
+              storeCoordinate(snappedCoordinate);
+
+              // Highlight the route from stored coordinates
+              highlightRouteFromStoredCoordinates();
             } else {
               console.log("No snapped points returned from Roads API.");
             }
@@ -235,34 +300,6 @@
           .catch(error => {
             console.error("Error calling Roads API:", error);
           });
-      }
-
-      function highlightRoadSegments(snappedCoordinates) {
-        if (!snappedCoordinates || snappedCoordinates.length < 2) {
-          console.log("Not enough coordinates to highlight a route.");
-          return;
-        }
-
-        console.log("Highlighting road segment with coordinates:", snappedCoordinates); // Log the coordinates being highlighted
-
-        // Clear previous road highlights
-        if (routePolyline) {
-          routePolyline.setMap(null);
-        }
-
-        // Create a new polyline for the entire route
-        routePolyline = new google.maps.Polyline({
-          path: snappedCoordinates, // Use the cumulative snapped route
-          geodesic: true,
-          strokeColor: 'yellow', // Highlight color for the road
-          strokeOpacity: 0.8,
-          strokeWeight: 6, // Thicker line for better visibility
-        });
-
-        // Add the polyline to the map
-        routePolyline.setMap(map);
-
-        console.log("Route highlighted successfully.");
       }
 
       document.getElementById("focus-button").addEventListener("click", () => {
